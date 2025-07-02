@@ -1,0 +1,30 @@
+{
+  "file_processing": {
+    "inode": 49730,
+    "position": 12102
+  },
+  "session_activity": {
+    "7e1c57071dcd": {
+      "ip": "172.29.242.191",
+      "command_nodes": [
+        "dmesg",
+        "kill -9",
+        "man"
+      ],
+      "profile": "Descuidado_e_Impulsivo"
+    },
+    "58ae70efaf65": {
+      "ip": "172.29.242.191",
+      "command_nodes": [
+        "man",
+        "fsck",
+        "dmesg",
+        "top",
+        "watch",
+        "man",
+        "pkill"
+      ],
+      "profile": "Descuidado_e_Impulsivo"
+    }
+  }
+}
