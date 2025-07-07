@@ -84,7 +84,7 @@ COMMAND_TAXONOMY = {
     }
 }
 
-# --- MOTOR DE CÁLCULO: WU & PALMER (COM FUNÇÃO CORRIGIDA) ---
+# --- MOTOR DE CÁLCULO: WU & PALMER  ---
 
 def find_path_to_root(taxonomy_dict, node_name):
     """
@@ -206,8 +206,7 @@ def classify_profile(similarity_scores):
     
     return best_rule
 
-# Funções de estado e iptables (omitidas por brevidade)
-# ...
+# Funções de estado e iptables 
 def rule_exists(ip_address: str):
     for port in PROFILE_ACTION_PORTS.values():
         if port is None: continue
