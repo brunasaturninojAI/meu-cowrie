@@ -13,7 +13,7 @@
 #   - Fórmula de Similaridade: Wu & Palmer (1994), "VERB SEMANTICS AND LEXICAL SELECTION".
 #   - Mapeamento de Comandos/Personalidades: "CPCS - comandos e personalidade.pdf".
 #
-# Uso:          sudo python3 comprehensive_persona_profiler.py
+# Uso:          sudo python3 tree.py
 # -----------------------------------------------------------------
 
 import json
@@ -22,10 +22,28 @@ import os
 
 # --- PAINEL DE CONTROLE E CONFIGURAÇÃO ---
 
-LOGFILE = "/home/brunasaturnino/meu-cowrie/cowrie1/var/log/cowrie/cowrie.json"
-STATE_FILE = "comprehensive_profiler.state"
-PORT_COWRIE1 = 2222
+# Configuração dos arquivos de log para cada honeypot
+HONEYPOT_LOGS = {
+    'cowrie1': "/home/brunasaturnino/meu-cowrie/cowrie1/var/log/cowrie/cowrie.json",
+    'cowrie2': "/home/brunasaturnino/meu-cowrie/cowrie2/var/log/cowrie/cowrie.json",
+    'cowrie3': "/home/brunasaturnino/meu-cowrie/cowrie3/var/log/cowrie/cowrie.json",
+    'cowrie4': "/home/brunasaturnino/meu-cowrie/cowrie4/var/log/cowrie/cowrie.json",
+    'cowrie5': "/home/brunasaturnino/meu-cowrie/cowrie5/var/log/cowrie/cowrie.json"
+}
 
+# Mapeamento de portas para honeypots
+PORT_TO_HONEYPOT = {
+    2222: 'cowrie1',  # Honeypot inicial
+    2224: 'cowrie2',  # Descuidado_e_Impulsivo
+    2226: 'cowrie3',  # Metodico_e_Perfeccionista
+    2228: 'cowrie4'   # Explorador_Criativo
+}
+
+HONEYPOT_TO_PORT = {v: k for k, v in PORT_TO_HONEYPOT.items()}
+
+PORT_COWRIE1 = 2222  # Mantido para compatibilidade
+
+STATE_FILE = "comprehensive_profiler.state"
 
 # 1. AÇÕES: Mapeamento dos Perfis Finais para as Portas de Destino
 PROFILE_ACTION_PORTS = {
@@ -37,7 +55,7 @@ PROFILE_ACTION_PORTS = {
 
 # 2. PROTÓTIPOS: Nós da taxonomia que melhor representam cada traço de personalidade
 PERSONA_PROTOTYPES = {
-    "Perfeccionismo": "fsck",
+    "Perfeccionismo": "dmesg",
     "Paciência": "watch",
     "Flexibilidade": "man",
     "Abertura_a_Experiencia": "gcc"
@@ -48,12 +66,27 @@ COMMAND_TAXONOMY = {
     "Tatica_de_Comando": { # Raiz
         "Foco_em_Precisao": { # Traço: Perfeccionismo
             "Alta_Precisao": {
-                "Verificacao_Sistema": {"dmesg": {}, "fsck": {}, "rpm -V": {}},
-                "Analise_Detalhada": {"top": {}, "strace": {}, "find": {}, "grep": {}}
+                "Verificacao_Sistema": {
+                    # Alta precisão – verificação e diagnóstico
+                    "dmesg": {}, "fsck": {}, "e2fsck": {}, "dosfsck": {}, "badblocks": {},
+                    "df": {}, "getconf": {}, "lscpu": {}, "ethtool": {}, "uname": {},
+                    "rpm -V": {}, "rpm --checksig": {}, "dpkg -s": {}, "dpkg -L": {},
+                    "apt-get check": {}
+                },
+                "Analise_Detalhada": {
+                    # Alta precisão – análise contínua/monitoramento
+                    "top": {}, "ps": {}, "lsof": {}, "strace": {}, "watch": {}, "tail -f": {},
+                    "tcpdump": {}, "netstat": {}, "diff": {}, "find": {}, "grep": {}
+                }
             },
             "Baixa_Precisao": {
-                "Acao_Forcada": {"rm -rf": {}, "kill -9": {}},
-                "Ignorar_Procedimentos": {"rpm --nodeeps": {}, "iptables -F": {}}
+                "Acao_Forcada": {
+                    # Baixa precisão – ações destrutivas ou sem checagem
+                    "rm -rf": {}, "kill -9": {}, "rpm -ivh --nodeeps": {}, "nohup": {}
+                },
+                "Ignorar_Procedimentos": {
+                    "rpm --nodeeps": {}, "iptables -F": {}, "iptables -t nat -F": {}, "iptables -t filter -F": {}
+                }
             }
         },
         "Foco_em_Tempo": { # Traço: Paciência
@@ -167,6 +200,16 @@ def map_command_to_node(command: str):
         
     return None
 
+# --------- PRECISION HELPERS ---------
+def precision_level(node_name: str):
+    """Return 'high', 'low', or None depending on where the node lives inside Foco_em_Precisao."""
+    path = find_path_to_root(COMMAND_TAXONOMY, node_name) or []
+    if "Alta_Precisao" in path:
+        return "high"
+    if "Baixa_Precisao" in path:
+        return "low"
+    return None
+
 def calculate_rule_score(similarity_scores, rule_name):
     """Calcula o score de uma regra específica baseado na média das subpersonalidades"""
     if rule_name == "Explorador_Criativo":
@@ -235,81 +278,233 @@ def add_redirect_rules(ip_address: str, target_port: int):
     subprocess.run(output_cmd, check=False)
     print("    → Regras aplicadas.")
 
+def remove_redirect_rules(ip_address: str, port: int):
+    """Remove regras de redirecionamento específicas para um IP e porta."""
+    print(f"    → REMOVENDO REDIRECIONAMENTO: IP {ip_address} da porta {port}.")
+    # Remove regra da PREROUTING
+    prerouting_cmd = [
+        "iptables", "-t", "nat", "-D", "PREROUTING",
+        "-s", ip_address, "-p", "tcp", "--dport", str(PORT_COWRIE1),
+        "-j", "REDIRECT", "--to-port", str(port)
+    ]
+    # Remove regra da OUTPUT
+    output_cmd = [
+        "iptables", "-t", "nat", "-D", "OUTPUT",
+        "-s", ip_address, "-p", "tcp", "--dport", str(PORT_COWRIE1),
+        "-j", "REDIRECT", "--to-port", str(port)
+    ]
+    print(f"      - Removendo regra da PREROUTING...")
+    subprocess.run(prerouting_cmd, check=False)
+    print(f"      - Removendo regra da OUTPUT...")
+    subprocess.run(output_cmd, check=False)
+    print("    → Regras removidas.")
+
 def load_state():
-    if not os.path.exists(STATE_FILE): return ({'inode': 0, 'position': 0}, {})
+    if not os.path.exists(STATE_FILE): 
+        return {
+            'file_processing': {honeypot: {'inode': 0, 'position': 0} for honeypot in HONEYPOT_LOGS.keys()},
+            'session_activity': {},
+            'ip_analysis_state': {}
+        }
     try:
-        with open(STATE_FILE, 'r') as f: state = json.load(f)
-        return state.get('file_processing', {'inode': 0, 'position': 0}), state.get('session_activity', {})
+        with open(STATE_FILE, 'r') as f: 
+            state = json.load(f)
+            # Garante que todos os honeypots estejam no estado
+            if 'file_processing' not in state:
+                state['file_processing'] = {}
+            for honeypot in HONEYPOT_LOGS.keys():
+                if honeypot not in state['file_processing']:
+                    state['file_processing'][honeypot] = {'inode': 0, 'position': 0}
+            return state
     except (json.JSONDecodeError, IOError):
-        return ({'inode': 0, 'position': 0}, {})
+        return {
+            'file_processing': {honeypot: {'inode': 0, 'position': 0} for honeypot in HONEYPOT_LOGS.keys()},
+            'session_activity': {},
+            'ip_analysis_state': {}
+        }
 
-def save_state(file_state, activity_state):
-    state = {'file_processing': file_state, 'session_activity': activity_state}
-    with open(STATE_FILE, 'w') as f: json.dump(state, f, indent=2)
+def save_state(file_states, activity_state, ip_state):
+    state = {
+        'file_processing': file_states,
+        'session_activity': activity_state,
+        'ip_analysis_state': ip_state
+    }
+    with open(STATE_FILE, 'w') as f:
+        json.dump(state, f, indent=2)
 
-# --- LÓGICA PRINCIPAL ---
+def process_log_file(logfile, last_position, session_activity, ip_analysis_state):
+    """Processa um arquivo de log específico e retorna a nova posição."""
+    if not os.path.isfile(logfile):
+        return last_position, session_activity
 
-def main():
-    if not os.path.isfile(LOGFILE): return
-    file_state, session_activity = load_state()
-    last_inode, last_position = file_state.get('inode', 0), file_state.get('position', 0)
-    try: current_inode = os.stat(LOGFILE).st_ino
-    except FileNotFoundError: return
-    if current_inode != last_inode:
-        last_position, session_activity = 0, {}
-
-    with open(LOGFILE, 'r') as f:
+    with open(logfile, 'r') as f:
         f.seek(last_position)
         for line in f:
             try:
                 log_entry = json.loads(line)
                 if log_entry.get("eventid") == "cowrie.command.input":
-                    session, src_ip, command_input = log_entry.get("session"), log_entry.get("src_ip"), log_entry.get("input", "")
-                    if not session or not src_ip: continue
+                    session = log_entry.get("session")
+                    src_ip = log_entry.get("src_ip")
+                    command_input = log_entry.get("input", "")
+                    if not session or not src_ip: 
+                        continue
+                    
                     command_node = map_command_to_node(command_input)
                     if command_node:
                         if session not in session_activity:
-                            session_activity[session] = {'ip': src_ip, 'command_nodes': [], 'profile': None}
-                        if not session_activity[session].get('profile'):
-                            session_activity[session]['command_nodes'].append(command_node)
-            except json.JSONDecodeError: continue
-        current_position = f.tell()
+                            session_activity[session] = {
+                                'ip': src_ip, 
+                                'command_nodes': [], 
+                                'profile': None,
+                                'honeypot': None  # Adicionado para rastrear em qual honeypot a sessão está
+                            }
+                        session_activity[session]['command_nodes'].append(command_node)
+                        
+                        if src_ip not in ip_analysis_state:
+                            ip_analysis_state[src_ip] = {
+                                'last_analyzed_cmd_count': 0,
+                                'current_profile': None,
+                                'current_honeypot': None  # Adicionado para rastrear o honeypot atual
+                            }
+            except json.JSONDecodeError:
+                continue
+        return f.tell(), session_activity
+
+def get_all_commands_by_ip(session_activity, target_ip):
+    """Retorna todos os comandos executados por um IP em todas as suas sessões."""
+    all_commands = []
+    for session_data in session_activity.values():
+        if session_data['ip'] == target_ip:
+            all_commands.extend(session_data.get('command_nodes', []))
+    return all_commands
+
+def main():
+    # Carrega o estado para todos os honeypots
+    state_data = load_state()
+    file_states = state_data['file_processing']
+    session_activity = state_data.get('session_activity', {})
+    ip_analysis_state = state_data.get('ip_analysis_state', {})
+
+    # Processa logs de todos os honeypots
+    for honeypot, logfile in HONEYPOT_LOGS.items():
+        try:
+            current_inode = os.stat(logfile).st_ino
+        except FileNotFoundError:
+            continue
+
+        # Reseta o estado se o arquivo mudou
+        if current_inode != file_states[honeypot].get('inode', 0):
+            file_states[honeypot] = {'inode': current_inode, 'position': 0}
+
+        # Processa o arquivo de log
+        new_position, session_activity = process_log_file(
+            logfile,
+            file_states[honeypot]['position'],
+            session_activity,
+            ip_analysis_state
+        )
+        
+        # Atualiza a posição no arquivo
+        file_states[honeypot]['position'] = new_position
 
     print("\n--- Análise de Logs Concluída. Iniciando Classificação de Perfis ---")
     
-    for session, data in list(session_activity.items()):
-        if data.get('profile'): continue
-        if len(data.get('command_nodes', [])) < 3: continue
-
-        ip, command_nodes = data['ip'], data.get('command_nodes', [])
+    # Agrupa sessões por IP para análise
+    ips_to_analyze = set(data['ip'] for data in session_activity.values())
+    
+    for ip in ips_to_analyze:
+        # Obtém todos os comandos deste IP em todas as sessões de todos os honeypots
+        all_commands = get_all_commands_by_ip(session_activity, ip)
         
+        if len(all_commands) < 3: 
+            continue
+        
+        current_cmd_count = len(all_commands)
+        # Garante que o IP exista no dicionário de estado
+        if ip not in ip_analysis_state:
+            ip_analysis_state[ip] = {
+                'last_analyzed_cmd_count': 0,
+                'current_profile': None,
+                'current_honeypot': None
+            }
+
+        if current_cmd_count == ip_analysis_state[ip]['last_analyzed_cmd_count']:
+            print(f"\n  ✅ PERFIL MANTIDO (sem novos comandos): {ip_analysis_state[ip]['current_profile']}")
+            print(f"  🎯 HONEYPOT: {ip_analysis_state[ip]['current_honeypot']}")
+            continue
+
         print(f"\n============================================================")
-        print(f"🔍 PROCESSANDO SESSÃO: {session} | IP: {ip}")
+        print(f"🔍 PROCESSANDO IP: {ip}")
+        if ip_analysis_state[ip]['current_profile']:
+            print(f"📌 Perfil Anterior: {ip_analysis_state[ip]['current_profile']}")
+            print(f"🎯 Honeypot Atual: {ip_analysis_state[ip]['current_honeypot']}")
         print(f"============================================================")
-        print(f"  📝 Comandos Mapeados: {list(set(command_nodes))}")
+        print(f"  📝 Total de Comandos Mapeados: {len(all_commands)}")
+        print(f"  📝 Comandos Únicos: {list(set(all_commands))}")
         
         similarity_scores = {}
         print(f"\n  📊 Calculando Similaridades com Protótipos:")
         for trait, ref_node in PERSONA_PROTOTYPES.items():
-            sims = [calculate_wu_palmer_similarity(COMMAND_TAXONOMY, ref_node, node) for node in command_nodes]
+            sims = []
+            for node in all_commands:
+                sim = calculate_wu_palmer_similarity(COMMAND_TAXONOMY, ref_node, node)
+                if trait == "Perfeccionismo":
+                    prec_level = precision_level(node)
+                    if prec_level == "low":
+                        sim *= -1  # penaliza comandos de baixa precisão
+                    elif prec_level is None:
+                        continue  # neutro, fora do eixo de precisão
+                sims.append(sim)
+
             average_sim = sum(sims) / len(sims) if sims else 0
             similarity_scores[trait] = average_sim
             print(f"    - Média de Similaridade com '{trait}': {average_sim:.3f}")
         
-        final_profile = classify_profile(similarity_scores)
-        data['profile'] = final_profile
+        new_profile = classify_profile(similarity_scores)
+        old_profile = ip_analysis_state[ip]['current_profile']
         
-        print(f"\n  ✅ PERFIL FINAL IDENTIFICADO: {final_profile}")
-
-        target_port = PROFILE_ACTION_PORTS.get(final_profile)
-        if target_port and not rule_exists(ip):
-            add_redirect_rules(ip, target_port)
-        elif target_port:
-            print(f"    - Ação de redirecionamento para o perfil '{final_profile}' já foi aplicada para o IP {ip}.")
+        # Atualiza o contador de comandos analisados para este IP
+        ip_analysis_state[ip]['last_analyzed_cmd_count'] = current_cmd_count
+        
+        # Se o perfil mudou, atualiza e aplica novas regras
+        if new_profile != old_profile:
+            ip_analysis_state[ip]['current_profile'] = new_profile
+            
+            # Determina o novo honeypot com base no perfil
+            target_port = PROFILE_ACTION_PORTS.get(new_profile)
+            new_honeypot = PORT_TO_HONEYPOT.get(target_port) if target_port else None
+            
+            print(f"\n  🔄 PERFIL ATUALIZADO: {old_profile if old_profile else 'Nenhum'} -> {new_profile}")
+            print(f"  🔄 HONEYPOT: {ip_analysis_state[ip]['current_honeypot'] if ip_analysis_state[ip]['current_honeypot'] else 'Nenhum'} -> {new_honeypot if new_honeypot else 'Nenhum'}")
+            
+            # Atualiza o honeypot atual no estado do IP
+            ip_analysis_state[ip]['current_honeypot'] = new_honeypot
+            
+            # Atualiza o perfil em todas as sessões deste IP
+            for session_data in session_activity.values():
+                if session_data['ip'] == ip:
+                    session_data['profile'] = new_profile
+                    session_data['honeypot'] = new_honeypot
+            
+            # Remove regras antigas se existirem
+            if old_profile and PROFILE_ACTION_PORTS.get(old_profile):
+                old_port = PROFILE_ACTION_PORTS.get(old_profile)
+                if old_port is not None:
+                    remove_redirect_rules(ip, old_port)
+            
+            # Aplica novas regras
+            if target_port and not rule_exists(ip):
+                add_redirect_rules(ip, target_port)
+            elif target_port:
+                print(f"    - Ação de redirecionamento para o perfil '{new_profile}' já foi aplicada para o IP {ip}.")
+            else:
+                print("    - Nenhuma ação de redirecionamento configurada para este perfil.")
         else:
-            print("    - Nenhuma ação de redirecionamento configurada para este perfil.")
+            print(f"\n  ✅ PERFIL MANTIDO: {new_profile}")
+            print(f"  🎯 HONEYPOT: {ip_analysis_state[ip]['current_honeypot']}")
 
-    save_state({'inode': current_inode, 'position': current_position}, session_activity)
+    # Atualiza o estado com as informações das sessões
+    save_state(file_states, session_activity, ip_analysis_state)
     print("\n--- Verificação Concluída. Estado Salvo. ---\n")
 
 if __name__ == "__main__":

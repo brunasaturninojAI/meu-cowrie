@@ -1,7 +1,27 @@
 {
   "file_processing": {
     "inode": 49730,
-    "position": 12102
+    "position": 12102,
+    "cowrie1": {
+      "inode": 49730,
+      "position": 26032
+    },
+    "cowrie2": {
+      "inode": 12290,
+      "position": 16706
+    },
+    "cowrie3": {
+      "inode": 12225,
+      "position": 16336
+    },
+    "cowrie4": {
+      "inode": 49717,
+      "position": 1506
+    },
+    "cowrie5": {
+      "inode": 407191,
+      "position": 37783
+    }
   },
   "session_activity": {
     "7e1c57071dcd": {
@@ -9,9 +29,13 @@
       "command_nodes": [
         "dmesg",
         "kill -9",
+        "man",
+        "dmesg",
+        "kill -9",
         "man"
       ],
-      "profile": "Descuidado_e_Impulsivo"
+      "profile": "Metodico_e_Perfeccionista",
+      "honeypot": "cowrie3"
     },
     "58ae70efaf65": {
       "ip": "172.29.242.191",
@@ -22,9 +46,60 @@
         "top",
         "watch",
         "man",
+        "pkill",
+        "man",
+        "fsck",
+        "dmesg",
+        "top",
+        "watch",
+        "man",
         "pkill"
       ],
-      "profile": "Descuidado_e_Impulsivo"
+      "profile": "Metodico_e_Perfeccionista",
+      "honeypot": "cowrie3"
+    },
+    "d3c6fd947ed2": {
+      "ip": "127.0.0.1",
+      "command_nodes": [
+        "dmesg",
+        "fsck",
+        "rpm -V",
+        "top"
+      ],
+      "profile": "Metodico_e_Perfeccionista",
+      "honeypot": "cowrie3"
+    },
+    "ed3bc5095a85": {
+      "ip": "127.0.0.1",
+      "command_nodes": [
+        "curl",
+        "wget",
+        "nc"
+      ],
+      "profile": "Metodico_e_Perfeccionista",
+      "honeypot": "cowrie3"
+    },
+    "53120d9fc8ce": {
+      "ip": "127.0.0.1",
+      "command_nodes": [
+        "dmesg",
+        "fsck",
+        "rpm -V"
+      ],
+      "profile": null,
+      "honeypot": null
+    }
+  },
+  "ip_analysis_state": {
+    "172.29.242.191": {
+      "last_analyzed_cmd_count": 20,
+      "current_profile": "Metodico_e_Perfeccionista",
+      "current_honeypot": "cowrie3"
+    },
+    "127.0.0.1": {
+      "last_analyzed_cmd_count": 10,
+      "current_profile": "Metodico_e_Perfeccionista",
+      "current_honeypot": "cowrie3"
     }
   }
 }
