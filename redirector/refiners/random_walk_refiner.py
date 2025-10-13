@@ -19,12 +19,14 @@ class RandomWalkRefiner:
     similar ao SentiWordNet 3.0.
     """
     
-    def __init__(self, all_commands: List[str], relations: Dict, alpha: float = 0.70, iterations: int = 25):
+    def __init__(self, all_commands: List[str], relations: Dict, alpha: float = 0.60, iterations: int = 20, tolerance: float = 1e-4, patience: int = 5):
         self.all_commands = all_commands
         self.cmd_to_idx = {cmd: i for i, cmd in enumerate(all_commands)}
         self.relations = relations
         self.alpha = alpha
         self.iterations = iterations
+        self.tolerance = tolerance
+        self.patience = patience
         self.transition_matrix = self._build_transition_matrix()
         
     def _build_transition_matrix(self) -> np.ndarray:
@@ -59,39 +61,71 @@ class RandomWalkRefiner:
                     rev_derived[v] = []
                 rev_derived[v].append(k)
         
+        # Pesos diferenciados por tipo de relação
+        w_sim = 1.0   # Similar: peso máximo
+        w_der = 0.7   # Derived: reduzido de 0.8
+        w_cat = 0.5   # Category: reduzido de 0.6
+        w_ant = 0.05  # Antônimos: muito reduzido (era 0.15) para minimizar contaminação cruzada
+
         for i, cmd in enumerate(self.all_commands):
             neighbors = set()
+            weighted_edges = {}
             
             # Adiciona vizinhos de todas as relações diretas
-            neighbors.update(self.relations.get("similar", {}).get(cmd, []))
-            neighbors.update(self.relations.get("derived_from", {}).get(cmd, []))
-            neighbors.update(self.relations.get("antonym", {}).get(cmd, []))
+            for nb in self.relations.get("similar", {}).get(cmd, []):
+                neighbors.add(nb)
+                weighted_edges[nb] = max(weighted_edges.get(nb, 0.0), w_sim)
+            for nb in self.relations.get("derived_from", {}).get(cmd, []):
+                neighbors.add(nb)
+                weighted_edges[nb] = max(weighted_edges.get(nb, 0.0), w_der)
+            for nb in self.relations.get("antonym", {}).get(cmd, []):
+                neighbors.add(nb)
+                weighted_edges[nb] = max(weighted_edges.get(nb, 0.0), w_ant)
             
             # Adiciona comandos da mesma categoria funcional
             for cat, cmds in self.relations.get("also_see", {}).items():
                 if cmd in cmds:
-                    neighbors.update(c for c in cmds if c != cmd)
+                    for c in cmds:
+                        if c == cmd:
+                            continue
+                        neighbors.add(c)
+                        weighted_edges[c] = max(weighted_edges.get(c, 0.0), w_cat)
 
             # Adiciona relações invertidas
-            neighbors.update(rev_similar.get(cmd, []))
-            neighbors.update(rev_derived.get(cmd, []))
-            neighbors.update(rev_antonym.get(cmd, []))
+            for nb in rev_similar.get(cmd, []):
+                neighbors.add(nb)
+                weighted_edges[nb] = max(weighted_edges.get(nb, 0.0), w_sim)
+            for nb in rev_derived.get(cmd, []):
+                neighbors.add(nb)
+                weighted_edges[nb] = max(weighted_edges.get(nb, 0.0), w_der)
+            for nb in rev_antonym.get(cmd, []):
+                neighbors.add(nb)
+                weighted_edges[nb] = max(weighted_edges.get(nb, 0.0), w_ant)
 
             # Preenche a matriz de transição
+            # Constrói lista de vizinhos válidos e seus pesos
             valid_neighbors = []
-            for neighbor in neighbors:
+            valid_weights = []
+            for neighbor, weight in weighted_edges.items():
                 if neighbor in self.cmd_to_idx:
                     j = self.cmd_to_idx[neighbor]
                     valid_neighbors.append(j)
-            
+                    valid_weights.append(weight)
+
             # Se não há vizinhos válidos, conecta a si mesmo (self-loop)
             if not valid_neighbors:
                 M[i, i] = 1.0
             else:
-                # Distribui probabilidade uniformemente entre vizinhos
-                prob = 1.0 / len(valid_neighbors)
-                for j in valid_neighbors:
-                    M[i, j] = prob
+                # Normaliza pesos para formar distribuição de probabilidade
+                weights = np.array(valid_weights, dtype=float)
+                # Pequeno epsilon para estabilidade
+                denom = weights.sum()
+                if denom <= 0:
+                    probs = np.full(len(valid_neighbors), 1.0 / len(valid_neighbors))
+                else:
+                    probs = weights / denom
+                for idx, j in enumerate(valid_neighbors):
+                    M[i, j] = probs[idx]
         
         return M
     
@@ -133,6 +167,7 @@ class RandomWalkRefiner:
 
             logger.info(f"Iniciando Random Walk para {trait} com {self.iterations} iterações...")
             
+            stable_steps = 0
             for i in range(self.iterations):
                 # Aplica a fórmula do Random Walk
                 s_pos_new = (1 - self.alpha) * s0_pos + self.alpha * (M_T @ s_pos)
@@ -147,6 +182,15 @@ class RandomWalkRefiner:
                 
                 if i % 5 == 0:  # Log a cada 5 iterações para reduzir verbosidade
                     logger.debug(f"  {trait} - Iteração {i+1}: conv_pos={conv_pos:.6f}, conv_neg={conv_neg:.6f}")
+
+                # Early stopping quando convergir por 'patience' passos
+                if conv_pos < self.tolerance and conv_neg < self.tolerance:
+                    stable_steps += 1
+                    if stable_steps >= self.patience:
+                        logger.debug(f"  {trait} - Early stopping na iteração {i+1} (convergência estável)")
+                        break
+                else:
+                    stable_steps = 0
 
             # Armazena resultados refinados para este traço
             for i, cmd in enumerate(self.all_commands):

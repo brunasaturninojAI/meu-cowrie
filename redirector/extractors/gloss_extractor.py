@@ -9,32 +9,51 @@ Extrai 'glossas' (descrições) das páginas man, similar às glossas do WordNet
 import subprocess
 import re
 import logging
+import platform
 
 logger = logging.getLogger(__name__)
 
 class CommandGlossExtractor:
-    """Extrai 'glossas' (descrições) das páginas man, similar às glossas do WordNet."""
+    """Extrai 'glossas' (descrições) de forma segura.
+    Em modo seguro, não executa binários externos; usa apenas fallback/local.
+    """
     
-    def __init__(self):
+    def __init__(self, safe_mode: bool = None):
+        # Em Windows, habilita safe_mode por padrão para evitar abrir GUIs (ex.: gitk)
+        if safe_mode is None:
+            safe_mode = (platform.system().lower() == 'windows')
+        self.safe_mode = safe_mode
         self.cache = {}
     
     def get_command_gloss(self, command: str) -> str:
-        """Extrai descrição da página man (equivalente à glossa do WordNet)."""
+        """Extrai descrição da página man quando seguro; caso contrário usa fallback.
+        Nunca executa binários externos quando safe_mode=True.
+        Enriquece com features estruturais.
+        """
         if command in self.cache:
             return self.cache[command]
-        
-        # Verifica primeiro se o comando está no dicionário de fallback
-        # para evitar tentar executar comandos que não existem
+
+        # Extrai features estruturais
+        structural_features = self._extract_structural_features(command)
+
+        # Verifica primeiro fallback local (evita executar programas quando possível)
         fallback_gloss = self._get_fallback_description(command)
-        if fallback_gloss != f"system command: {command}":
-            self.cache[command] = fallback_gloss
-            return fallback_gloss
-        
+        if self.safe_mode:
+            # Em modo seguro sempre retorna fallback (ou descrição genérica)
+            enriched_gloss = f"{fallback_gloss} {structural_features}"
+            self.cache[command] = enriched_gloss
+            return enriched_gloss
+        else:
+            if fallback_gloss != f"system command: {command}":
+                enriched_gloss = f"{fallback_gloss} {structural_features}"
+                self.cache[command] = enriched_gloss
+                return enriched_gloss
+
         # Processa comandos compostos
         base_cmd = command.split()[0].replace('-', '_')
         
         try:
-            # Tenta obter a página man
+            # Tenta obter a página man (somente em modo não seguro)
             result = subprocess.run(
                 ["man", base_cmd], 
                 capture_output=True, 
@@ -62,7 +81,9 @@ class CommandGlossExtractor:
         return gloss
     
     def _try_help_fallback(self, base_cmd: str) -> str:
-        """Tenta extrair descrição usando --help quando man falha."""
+        """Tenta extrair descrição usando --help; não é usado em safe_mode."""
+        if self.safe_mode:
+            return None
         help_options = ["--help", "-h", "-help", "help"]
         
         for help_opt in help_options:
@@ -260,3 +281,74 @@ class CommandGlossExtractor:
             "cached_commands": len(self.cache),
             "cache_size": sum(len(gloss) for gloss in self.cache.values())
         }
+
+    def _extract_structural_features(self, command: str) -> str:
+        """Extrai features estruturais do comando para melhorar classificação."""
+        features = []
+        cmd_lower = command.lower()
+
+        # Flags destrutivas/perigosas
+        dangerous_flags = ["-rf", "--force", "-f", "--no-preserve-root", "-9", "--privileged",
+                          "--auto-approve", "--no-verify", "-k", "--insecure",
+                          "--no-check-certificate", "-T5", "--rate="]
+        for flag in dangerous_flags:
+            if flag in cmd_lower:
+                features.append("DANGEROUS_FLAG")
+                break
+
+        # Flags de cautela/segurança
+        safe_flags = ["--check", "--dry-run", "-n", "--verify", "-i", "-p",
+                     "--backup", "-v", "--verbose", "--diff", "plan"]
+        for flag in safe_flags:
+            if flag in cmd_lower:
+                features.append("SAFE_FLAG")
+                break
+
+        # Operações destrutivas
+        destructive_ops = ["rm ", "kill", "delete", "destroy", "wipe", "shred",
+                          "dd if=", "mkfs", "format", "shutdown", "reboot"]
+        for op in destructive_ops:
+            if op in cmd_lower:
+                features.append("DESTRUCTIVE_OP")
+                break
+
+        # Operações de leitura/informação
+        read_ops = ["cat ", "less ", "more ", "head ", "tail ", "ls ", "ps ",
+                   "top ", "status", "show", "get ", "list", "view"]
+        for op in read_ops:
+            if op in cmd_lower:
+                features.append("READ_OP")
+                break
+
+        # Operações de rede
+        network_ops = ["ssh", "scp", "curl", "wget", "nc ", "netcat", "nmap",
+                      "ping", "telnet", "ftp", "http"]
+        for op in network_ops:
+            if op in cmd_lower:
+                features.append("NETWORK_OP")
+                break
+
+        # Operações de backup/proteção
+        backup_ops = ["backup", "rsync", "tar ", "zip", "dump", "stash",
+                     "snapshot", "clone"]
+        for op in backup_ops:
+            if op in cmd_lower:
+                features.append("BACKUP_OP")
+                break
+
+        # Operações privilegiadas
+        priv_ops = ["sudo", "su ", "root", "chown", "chmod 777", "chmod -R 777"]
+        for op in priv_ops:
+            if op in cmd_lower:
+                features.append("PRIVILEGED_OP")
+                break
+
+        # Redirecionamento de execução remota (muito perigoso)
+        if ("curl" in cmd_lower or "wget" in cmd_lower) and ("|" in cmd_lower or "bash" in cmd_lower or "sh" in cmd_lower):
+            features.append("REMOTE_EXEC")
+
+        # Pipe para shell
+        if "| bash" in cmd_lower or "| sh" in cmd_lower:
+            features.append("PIPE_TO_SHELL")
+
+        return " ".join(features) if features else ""
