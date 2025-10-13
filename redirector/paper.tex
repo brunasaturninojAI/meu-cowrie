@@ -1,0 +1,312 @@
+\documentclass[12pt]{article}
+
+\usepackage{sbc-template}
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{comment}
+\usepackage{mathtools}
+\usepackage{xspace}
+\usepackage{comment}
+\usepackage{multirow}
+\usepackage{float} % Option H figure
+\usepackage{boldline}
+\usepackage{url}
+\usepackage{scalefnt}
+\usepackage{xcolor,colortbl}
+
+\usepackage[brazil]{babel}   
+\usepackage[utf8]{inputenc} 
+
+\definecolor{green}{rgb}{0.1,0.1,0.1}
+
+\newcommand{\notered}[1]{\textcolor{red}{[{\bf #1}]}}
+\newcommand{\noteblue}[1]{\textcolor{blue}{{\bf #1}}}
+\newcommand{\as}[1]{\textcolor{blue}{{\bf #1}}}
+\newcommand{\asr}[1]{\textcolor{black}{{#1}}}
+\newcommand{\cm}[1]{\textcolor{red}{{\bf #1}}}
+\newcommand{\al}[1]{\textcolor{brown}{{\bf #1}}}
+\definecolor{color4}{RGB}{179, 43, 59}
+\newcommand{\ca}[1]{\textcolor{black}{#1}}
+\newcommand{\cp}[1]{\textcolor{black}{#1}}
+\newcommand{\sep}{\hspace{2mm}}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+T\kern-.1667em\lower.7ex, \hbox{E}\kern-.125emX}}
+    
+\definecolor{tpurple}{rgb}{.341, .035, .953}
+
+\newcommand\Thiago[1]{{\color{black}#1}}
+\newcommand\Thiagoi[1]{{\color{tpurple}#1}}
+    
+\usepackage[normalem]{ulem}
+\newcommand{\tachar}[1]{\textcolor{red}{\sout{#1}}}
+\newcommand{\tasr}[1]{\textcolor{blue}{\sout{#1}}}
+\newcommand{\talr}[1]{\textcolor{brown}{\sout{#1}}}
+\newcommand{\nota}[1]{\noindent\textcolor{red}{\underline{#1}}}     
+
+    
+\usepackage[english,ruled,noline,linesnumbered]{algorithm2e}
+
+\definecolor{color4}{RGB}{179, 43, 59}
+\newcommand{\agn}[1]{\textcolor{black}{#1}}    
+
+\usepackage[tight,footnotesize]{subfigure}
+
+\linespread{.987} %1.08 
+%\usepackage[brazil]{babel}   
+\usepackage[utf8]{inputenc}  
+     
+\sloppy
+
+\title{Análise Semântica Semi-Supervisionada de Comandos de Atacantes para Modelagem Comportamental em Honeypots}
+
+\author{Bruna Saturnino\inst{1},   
+%Agnaldo Batista\inst{1}, Samuel Brisio\inst{2}, Rodrigues S. R.\inst{2}, 
+Aldri Santos\inst{1}}
+\address{
+%Núcleo de Redes Sem-Fio e Redes Avançadas (NR2) -- UFPR %-- Curitiba -- PR -- Brasil 
+%\\ 
+%\nextinstitute
+Center for Computational Security sCience (CCSC)\\
+  Depto. de Ciência da Computação -- Universidade Federal de Minas Gerais (UFMG)
+%\\ Universidade Federal do Paraná (UFPR)\\
+%Caixa Postal 19.081 -- 81.531-980 -- Curitiba -- PR -- Brasil
+\email
+%\{capjunior, asbatista\}@inf.ufpr.br, 
+brunasaturnino@dcc.ufmg.br, aldri@dcc.ufmg.br}
+
+\begin{document} 
+%\pagestyle{myheadings} % numerar páginas plain/empty/headings/headings/myheadings 
+\maketitle
+
+\begin{abstract}
+Apresentamos um pipeline semi-supervisionado para perfilar atacantes a partir da semântica de comandos de shell, inspirado no SentiWordNet e complementado por calibração probabilística e refinamento por Random Walk. Em um universo de 681 comandos (18 de teste), os classificadores binários por traço HEXACO alcançaram AUC entre 0.695 e 0.817 e F1 otimizado por traço entre 0.742 e 0.837 (limiares 0.29--0.34). A validação cruzada com previsões OOF indicou AUC entre 0.394 e 0.540 e F1-OOF entre 0.544 e 0.575, com Brier entre 0.279 e 0.320 e ECE entre 0.195 e 0.268, revelando generalização modesta, porém com boa ordenação in-sample. O Random Walk elevou os escores em média em 0.021 (40 de 108 casos). No conjunto de teste, o perfil agregado foi dominado por Honesty-Humility (61,1%). Os resultados indicam viabilidade da abordagem e apontam caminhos para maior robustez com rótulos mais fortes e expansão do grafo.
+\end{abstract}
+
+\begin{resumo}
+Propomos um modelo de análise semântica de comandos para perfilamento comportamental de atacantes em honeypots, combinando expansão semi-supervisionada de seeds, vetorização de glossas, classificação calibrada e refinamento por Random Walk. Nos 681 comandos (18 de teste), obtivemos AUC entre 0.695 e 0.817 e F1 por traço entre 0.742 e 0.837 após otimização de limiares (0.29--0.34). A validação cruzada estratificada com previsões OOF apresentou AUC de 0.394 a 0.540 e F1-OOF de 0.544 a 0.575, com Brier 0.279--0.320 e ECE 0.195--0.268. O Random Walk melhorou os escores em média em 0.021 (40/108). O perfil agregado do conjunto de teste foi dominado por Honesty-Humility (61,1%).
+\end{resumo}
+
+
+\section{Introdução} 
+\label{sec:intro}
+%\textcolor{red}{Cada parágrafo tem uma sentença principal, seguida por várias outras sentenças que explicam justifican, detalham (em resumo sustentam à 1a sentença). DEJ/AEJ}. 3 pessoa do singular(português), 3 pessoa do singular ou 1 pessoa do plural(inglês).
+%\\
+%\\
+% Motivação Social
+%\textcolor{red}{Motivação Social} \\
+Atualmente a sociedade depende fundamentalmente de complexos sistemas de redes interconectadas que integram diversas tecnologias. Muitas dessas redes governam setores vitais, como transportes, finanças e saúde, gerenciando dados sensíveis e operações essenciais. Logo, qualquer falha de segurança sobre essas redes representa uma ameaça à segurança pública e à privacidade dos cidadãos\cite{khoshaba2024industry}. Um exemplo clássico que ilustra esses riscos foi o ciberataque coordenado contra a rede elétrica da Ucrânia em 2015, que utilizou malware para causar um apagão em massa, demonstrando como uma vulnerabilidade digital pode resultar em um grande impacto social. Esse ataque evidencia a capacidade de um ataque cibernético de ultrapassar o ambiente digital e gerar impactos diretos e tangíveis no mundo físico.
+% escrever um exemplo mais atual e urgente 
+%\\ 
+% Motivação Técnica
+%\textcolor{red}{Motivação Técnica} \\
+A criticidade dessas redes as torna alvos de alto valor, impulsionando um dos principais desafios técnico da cibersegurança atual: a contínua evolução das Táticas, Técnicas e Procedimentos (TTPs) empregados por agentes maliciosos. Essa evolução contínua torna ineficazes os sistemas de detecção que se baseiam em eventos isolados ou em assinaturas conhecidas, pois os adversários modernos utilizam técnicas polimórficas e furtivas para não serem detectados\cite{lopez2024cyber}. Isso estabelece a necessidade de um novo paradigma que supere a análise pontual de eventos para, em vez disso, compreender a intenção tática do adversário. O desafio científico, portanto, é criar um modelo capaz de classificar o comportamento do atacante com base na semântica de suas ações, a fim de permitir uma resposta de segurança mais estratégica e eficaz.
+
+%\\
+% Como a literatura tem resolvido
+%\textcolor{red}{Como a literatura tem buscado resolver este problema} \\
+A abordagem predominante na literatura de detecção de ataques concentra-se em métodos quantitativos para a identificação de ameaças. Frequentemente, a literatura também apresenta modelagens que consideram o adversário como ``perfeitamente racional'', tomando decisões matemáticas ótimas para maximizar seus ganhos \cite{xu2015exploring}. Outros trabalhos utilizam algoritmos de aprendizado de máquina para analisar informações geradas diretamente por sistemas e redes — como fluxos de tráfego\cite{sscl-ids} e logs de eventos\cite{du2017deeplog} — a fim de modelar o comportamento padrão e encontrar anomalias ou prever reações. Embora eficazes para identificar padrões, tais métodos possuem uma capacidade limitada de interpretar o contexto semântico ou a intenção tática por trás das ações de um adversário.
+
+% Colocar exemplos de artigos que fazem isso
+%\\
+% Como acho que deve resolver
+%\textcolor{red}{Como acho que deve resolver. Isto é, qual abordagem existente na literatura me parece promissora e onde e como ela tem sido aplicada} \\
+Desse modo, torna-se 
+importante levar em conta as características psicológicas dos atacantes ao analisar possíveis ameaças \cite{rich2025cyberpsychology}. Como todo ser humano, os adversários também são influenciados por vieses cognitivos e pela aprendizagem baseada em experiências recentes\cite{simon1956rational}. Ignorar esses fatores humanos resulta em defesas que são ``menos que ótimas'' contra adversários reais, evidenciando a necessidade de modelos que capturem e se adaptem a esses perfis comportamentais. 
+Nesse sentido, uma abordagem promissora que tem emergido na literatura é a decepção cibernética adaptativa. Essa estratégia utiliza modelos cognitivos para prever o estado mental do atacante — como frustração ou excesso de confiança — e personalizar as táticas de engano em tempo real\cite{zhu2021defensive}. O objetivo é explorar os vieses do adversário para mantê-lo engajado em ambientes controlados, como honeypots, maximizando a coleta de inteligência e a eficácia da defesa.
+
+%\\
+% Proposta
+%\textcolor{red}{A Proposta em si construída/desenvolvida a partir da(s) abordagem(ns) promissora(s)} \\
+Esse trabalho propõe um modelo para o perfilamento comportamental de atacantes~em tempo real, projetado para operar em ambientes de decepção cibernética. A~metodologia baseia-se numa taxonomia de comandos que associa ações a traços comportamentais. Inspirado pela abordagem do SentiWordNet\cite{sentiword3}, o modelo utiliza um processo de expansão semi-supervisionada para enriquecer essa taxonomia e treinar classificadores capazes de analisar a semântica das ações do adversário. O objetivo final é utilizar os perfis gerados para orquestrar respostas de defesa adaptativas,  como o redirecionamento inteligente de atacantes para honeypots especializados, transformando a defesa de reativa para preditiva. Portanto, as contribuições centrais deste trabalho são: (1) uma nova taxonomia de comandos para perfilamento comportamental; (2) a adaptação de um método de expansão semi-supervisionada para o domínio de cibersegurança; e (3) a demonstração de como esses perfis podem ser usados para orquestrar uma defesa adaptativa em honeypots.
+
+O restante do artigo está organizado da seguinte forma: a Seção \ref{sec:trab} apresenta os trabalhos relacionados; a Seção \ref{sec:fundamentacao} discute os conceitos apresentados; a Seção \ref{sec:metodologia} detalha a metodologia; a Seção \ref{sec:resultados} expõe os resultados e, por fim, a Seção ~\ref{sec:con} traz as conclusões.
+
+\section{Trabalhos Relacionados} 
+\label{sec:trab}
+%\as{Pode começar a fazer a lista dos artigos que serão citados e que possuem relação com este trabalho. Isto é, as relações consistem em se eles tentaram resolver o problema, se eles possuem abordagens úteis e que poderiam ser aplicadas ao problema tratado.}
+%\tachar{A análise do comportamento do adversário consolidou-se como uma abordagem central na cibersegurança para a detecção e mitigação de ameaças sofisticadas.} 
+A  recente literatura sobre a análise e comportamento dos adversários indica uma transição de métodos baseados em anomalias estatísticas para modelos que buscam compreender a lógica tática do atacante.
+No entanto, a maioria dessas técnicas ainda se concentra em~modelar a ação em si \cite{du2017deeplog, vinay2024scade, lashkari2022atlas, veronica2023geo} com uma minoria de trabalhos que focam no ator~\cite{cranford2020adaptive, zhu2021defensive}.
+%
+%carecendo de abordagens que explorem os vieses psicológicos e cognitivos do adversário para influenciar seu comportamento através da decepção.
+%
+
+Uma vertente de trabalhos foca na análise estatística de sequências de eventos para identificar desvios de um padrão. Em \cite{du2017deeplog}, os autores utilizam Redes Neurais Recorrentes (LSTMs) para aprender a sequência normal de logs e detectar anomalias, avaliando sua abordagem em conjuntos de dados de sistemas de supercomputação (HPC) e distribuídos. De forma similar, em~\cite{vinay2024scade}, os autores~propõem  o sistema SCADE composto de duas camadas para avaliar a raridade estatística de comandos em ambientes de larga escala, combinando uma análise global com perfis de uso locais para identificar atividades incomuns. 
+A avaliação do SCADE foi realizada em um cenário prático, utilizando dados reais de linhas de comando de datacenters da Microsoft e simulações de ataque por uma equipe de Red Team. Apesar dessas abordagens serem eficazes para encontrar padrões estatísticos,  a análise empregada nessas abordagens permanece em um nível primariamente sintático, focando na ordem dos eventos em vez de interpretar o significado e a intenção por trás~das~ações.
+
+Assim, buscando  superar a falta de contexto, uma segunda linha de pesquisa foca na criação de perfis de atacantes baseados em padrões de ataque observáveis. O trabalho de~\cite{veronica2023geo}, por exemplo, analisa o dataset público CTU Hornet 40, contendo dados de oito honeypots geograficamente distribuídos, para criar quatro perfis de adversários com base no número de alvos e serviços atacados. De maneira complementar, o sistema ATLAS~\cite{lashkari2022atlas} modela a atividade do ataque como um grafo de procedência para identificar a estrutura e a cadeia causal das ações do adversário, utilizando dados de auditoria de sistema (como os do auditd do Linux) de datasets públicos de ataque, como os do DARPA. 
+No entanto, apesar dessas abordagens serem eficazes para categorizar atacantes com base em dados de alto nível ou na estrutura do ataque, elas não aprofundam na análise semântica dos comandos executados, que pode revelar a intenção e o estilo operacional do ator com maior granularidade.
+
+Entretanto algumas pesquisas mais recentes buscam ir além da análise da ação para focar na modelagem cognitiva do ator, tratando o adversário como um agente humano. O estudo conduzido por~\cite{cranford2020adaptive} é um exemplo proeminente, ao propor um sistema de decepção adaptativa que considera a ''racionalidade limitada'' e os vieses psicológicos do atacante para personalizar as defesas em tempo real. Para isso, o trabalho utiliza um jogo de segurança online (o ''Insider Attack Game''), onde a avaliação é feita através de experimentos com participantes humanos que interagem com o sistema. A relevância dessa transição para modelos comportamentais mais realistas é confirmada por artigos de revisão como os de \cite{zhu2021defensive, jurisic2023behaviour}. Contudo, apesar do seu poder conceitual, a validação dessas abordagens é predominantemente restrita a cenários controlados ou simulados. Isso cria uma lacuna significativa, pois a validação em ambientes teóricos não garante a eficácia ou a escalabilidade desses modelos para a análise semântica de comandos de shell em cenários operacionais complexos e do mundo~real.
+
+Assim, os trabalhos existentes revelam uma ausência de aplicações comportamentais, uma vez que os métodos estatísticos carecem de contexto, os mapeamentos táticos são rígidos e os modelos psicológicos permanecem teóricos. Para preencher essa lacuna, este trabalho apresenta uma abordagem com ênfase distinta, inspirada no SentiWordNet, para realizar uma análise semântica direta dos comandos e, a partir dela, classificar a ''personalidade'' operacional do atacante.
+
+% estrutura da solução e forma de avaliação
+
+%O objetivo final é utilizar esse perfil para permitir um redirecionamento inteligente e adaptativo em redes de honeypots.
+
+% agrupar artigos relacionados
+% colocar pontos negativos e positivos das tecnicas utilizadas anteriormente 
+% colocar as tecnicas utilizadas mais proximas do meu contexto
+% colocar paragrafo(ou sentença) introdutorio e conclusão(ver referencia)
+\section{Metodologia Proposta}
+\label{sec:metodologia}
+
+Para superar a dependência de assinaturas e a falta de contexto semântico dos métodos existentes, propomos um pipeline que modela o comportamento do atacante através da lente de traços psicológicos. A inspiração central é a metodologia do SentiWordNet, que atribui polaridade a conceitos em uma rede semântica. Adaptamos essa ideia para o domínio de cibersegurança, onde ``conceitos'' são comandos de shell e ``polaridade'' é a associação com traços comportamentais (HEXACO). O método é semi-supervisionado para mitigar a escassez de dados rotulados.
+
+O pipeline proposto é composto por quatro estágios principais, projetados para operar de forma sequencial e modular, conforme detalhado a seguir.
+
+\subsection{Expansão Semi-Supervisionada do Conhecimento}
+
+A rotulação manual de comandos é um processo lento e sujeito a vieses. Para escalar a base de conhecimento, partimos de um pequeno conjunto de comandos semente (rotulados manualmente com traços HEXACO) e utilizamos uma expansão semi-supervisionada para propagar rótulos para comandos semanticamente relacionados. A expansão ocorre em iterações sobre um grafo de relações (e.g., \textit{similaridade}, \textit{derivação}), onde novos comandos são adicionados se estiverem conectados aos membros atuais. Para evitar a corrupção do sinal semântico (\textit{semantic drift}), o processo é limitado a um número baixo de iterações.
+
+\subsection{Extração e Vetorização Semântica de Glossas}
+
+A semântica de um comando está contida em sua descrição textual (glossa). Para cada comando, uma glossa é extraída de fontes locais (para garantir reprodutibilidade e segurança) e enriquecida com tokens que representam suas relações com vizinhos no grafo. A representação final de cada comando é um vetor de características (features) gerado a partir de uma combinação de TF-IDF de n-gramas de palavras (para capturar termos-chave) e de caracteres (para robustez a variações sintáticas).
+
+\subsection{Classificação Inicial e Calibração de Probabilidades}
+
+Para estimar a associação de um comando a um traço, adotamos a abordagem do SentiWordNet de treinar dois classificadores binários por traço: um para a polaridade positiva e outro para a negativa. Utilizamos Regressão Logística com pesos de classe balanceados. Um passo crucial é a calibração das probabilidades de saída usando o método de Platt (sigmoide), que, em nossos testes, se mostrou mais eficaz para preservar a ordenação dos escores. As duas probabilidades calibradas ($p^+$ e $p^-$) são então combinadas para produzir os escores iniciais.
+
+\subsection{Refinamento de Escores com Random Walk}
+
+Os escores iniciais são baseados apenas na glossa do comando, ignorando o conhecimento estrutural do grafo de relações. Para garantir que comandos semanticamente próximos tenham perfis consistentes, aplicamos um algoritmo de \textit{Random Walk} sobre o grafo. Este processo refina os escores de comandos com baixa confiança, ajustando-os com base na polaridade de seus vizinhos semânticos, o que garante uma consistência global nos perfis comportamentais.
+
+\section{Avaliação Experimental}
+\label{sec:ava}
+
+Esta seção detalha o protocolo experimental utilizado para validar a metodologia proposta, incluindo o conjunto de dados, as métricas de avaliação e os métodos de validação robusta empregados.
+
+\subsection{Configuração}
+
+\textbf{Conjunto de Dados.} O universo de comandos foi construído a partir da expansão dos \textit{seeds}, totalizando \textbf{681} comandos únicos. Uma taxonomia de relações entre esses comandos foi criada manualmente para servir de base para a expansão e o refinamento. Para a análise de perfil do atacante, utilizamos um conjunto fixo de \textbf{18} comandos de teste.
+
+\textbf{Métricas de Avaliação.} Para validar a capacidade do modelo de distinguir entre as polaridades de cada traço, utilizamos duas métricas principais:
+\begin{itemize}
+    \item \textbf{AUC-ROC:} Avalia a capacidade de ranqueamento do modelo, i.e., sua habilidade de atribuir um score positivo maior a um comando da classe positiva do que a um da classe negativa.
+    \item \textbf{F1-Score:} Mede a acurácia da classificação binária, considerando a média harmônica de precisão e recall, após a aplicação de um limiar de decisão.
+\end{itemize}
+
+\textbf{Protocolo de Validação Robusta.} Para mitigar o risco de estimativas excessivamente otimistas, conduzimos uma \textbf{validação cruzada estratificada} com previsões \textit{out-of-fold} (OOF). Adicionalmente, reportamos intervalos de confiança de 95\% via \textit{bootstrap} e avaliamos a calibração probabilística com \textit{Brier score} e \textit{Expected Calibration Error (ECE)}.
+
+\section{Resultados e Discussão}
+\label{sec:resultados}
+
+A avaliação do modelo foi realizada sob três perspectivas: a qualidade do refinamento, a efetividade da classificação e a análise qualitativa do perfil gerado.
+
+\subsection{Efetividade da Classificação e do Refinamento}
+
+A primeira validação focou no impacto do Random Walk: observamos um \textit{ganho médio} de \textbf{0,021} nos escores (\textbf{40}/108 classificações com melhoria), com convergência estável ao longo de 20 iterações (Figura \ref{fig:rw}). Em seguida, avaliamos a capacidade de discriminar polaridades opostas por traço usando as \textit{seeds} como rótulos fracos. A Tabela \ref{tab:validation} resume as métricas por traço: os escores de \textbf{AUC} ficaram entre \textbf{0,695} e \textbf{0,817} e o \textbf{F1} otimizado por traço entre \textbf{0,742} e \textbf{0,837} (limiares de \textbf{0,29} a \textbf{0,34}). As curvas ROC/PR por traço estão na Figura \ref{fig:rocpr}. Já a validação robusta com previsões OOF (Tabela \ref{tab:oof}) foi mais conservadora, com \textbf{AUC-OOF} entre \textbf{0,394} e \textbf{0,540}, \textbf{F1-OOF} entre \textbf{0,544} e \textbf{0,575}, \textbf{Brier} entre \textbf{0,279} e \textbf{0,320} e \textbf{ECE} entre \textbf{0,195} e \textbf{0,268}, indicando generalização modesta sob \textit{ground truth} fraco. O panorama agregado da validação está na Figura \ref{fig:cvsummary}.
+
+\begin{table}[H]
+\centering
+\caption{Métricas por traço (validação por \textit{seeds}). F1@0.5 indica limiar padrão; F1@thr usa limiar ótimo por traço.}
+\label{tab:validation}
+\begin{tabular}{lccccc}
+\hline
+Traço & AUC & F1@0.5 & F1@thr & thr & N \\
+\hline
+Honesty-Humility & 0.744 & 0.669 & 0.797 & 0.28 & 353 \\
+Emotionality & 0.739 & 0.695 & 0.763 & 0.29 & 392 \\
+Extraversion & 0.782 & 0.670 & 0.792 & 0.34 & 416 \\
+Agreeableness & 0.695 & 0.683 & 0.742 & 0.34 & 395 \\
+Conscientiousness & 0.817 & 0.695 & 0.837 & 0.34 & 411 \\
+Openness to Experience & 0.725 & 0.661 & 0.807 & 0.29 & 436 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\subfigure[Agreeableness]{\includegraphics[width=0.32\textwidth]{cowrie_analysis_results/graphs/roc_pr_Agreeableness.png}}\hfill
+\subfigure[Conscientiousness]{\includegraphics[width=0.32\textwidth]{cowrie_analysis_results/graphs/roc_pr_Conscientiousness.png}}\hfill
+\subfigure[Emotionality]{\includegraphics[width=0.32\textwidth]{cowrie_analysis_results/graphs/roc_pr_Emotionality.png}}\\
+\subfigure[Extraversion]{\includegraphics[width=0.32\textwidth]{cowrie_analysis_results/graphs/roc_pr_Extraversion.png}}\hfill
+\subfigure[Honesty-Humility]{\includegraphics[width=0.32\textwidth]{cowrie_analysis_results/graphs/roc_pr_HonestyHumility.png}}\hfill
+\subfigure[Openness to Experience]{\includegraphics[width=0.32\textwidth]{cowrie_analysis_results/graphs/roc_pr_OpennessToExperience.png}}
+\caption{Curvas ROC/PR por traço HEXACO.}
+\label{fig:rocpr}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Validação cruzada (OOF) por traço: AUC com IC95\%, F1-OOF no limiar médio de CV, além de limiar, Brier e ECE.}
+\label{tab:oof}
+\begin{tabular}{lccccc}
+\hline
+Traço & AUC-OOF [IC95\%] & F1-OOF@cv [IC95\%] & thr\_cv & Brier & ECE \\
+\hline
+Honesty-Humility & 0.489 [0.431, 0.550] & 0.575 [0.517, 0.630] & 0.29 & 0.301 & 0.232 \\
+Emotionality & 0.413 [0.358, 0.466] & 0.567 [0.516, 0.622] & 0.318 & 0.319 & 0.257 \\
+Extraversion & 0.540 [0.487, 0.595] & 0.574 [0.516, 0.635] & 0.332 & 0.280 & 0.195 \\
+Agreeableness & 0.394 [0.342, 0.447] & 0.544 [0.486, 0.597] & 0.326 & 0.320 & 0.268 \\
+Conscientiousness & 0.513 [0.454, 0.568] & 0.546 [0.482, 0.601] & 0.336 & 0.292 & 0.202 \\
+Openness to Experience & 0.449 [0.400, 0.505] & 0.564 [0.511, 0.609] & 0.302 & 0.316 & 0.252 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.7\textwidth]{cowrie_analysis_results/graphs/cv_summary.png}
+\caption{Resumo visual da validação cruzada (AUC, F1 e variações por traço).}
+\label{fig:cvsummary}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.6\textwidth]{cowrie_analysis_results/graphs/random_walk_convergence.png}
+\caption{Convergência do Random Walk e distribuição das melhorias de escore.}
+\label{fig:rw}
+\end{figure}
+
+\subsection{Análise Qualitativa do Perfil Gerado}
+
+Avaliamos a plausibilidade do perfil gerado para o conjunto de teste (\textbf{18} comandos). A Tabela \ref{tab:distribution} apresenta a distribuição do traço dominante por comando: \textbf{Honesty-Humility} prevaleceu em \textbf{61,1\%} dos casos (11/18), seguido por \textbf{Agreeableness} (16,7\%), \textbf{Openness to Experience} (11,1\%), \textbf{Extraversion} (5,6\%) e \textbf{Conscientiousness} (5,6\%). Não houve domínios de \textbf{Emotionality}. Esse padrão é compatível com um conjunto de ações focadas em reconhecimento, verificação e transparência de estado do sistema, típicas de fases iniciais de exploração.
+
+\begin{table}[H]
+\centering
+\caption{Distribuição do traço dominante no conjunto de teste (N=18).}
+\label{tab:distribution}
+\begin{tabular}{lcc}
+\hline
+Traço & Contagem & \% \\
+\hline
+Honesty-Humility & 11 & 61,1 \\
+Emotionality & 0 & 0,0 \\
+Extraversion & 1 & 5,6 \\
+Agreeableness & 3 & 16,7 \\
+Conscientiousness & 1 & 5,6 \\
+Openness to Experience & 2 & 11,1 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.7\textwidth]{cowrie_analysis_results/graphs/main_analysis.png}
+\caption{Resumo gráfico do perfil agregado do atacante no conjunto de teste.}
+\label{fig:perfil}
+\end{figure}
+
+\subsection{Ameaças à Validade}
+
+As principais ameaças à validade são: \textbf{Externa}, pois a generalização é limitada pela qualidade da taxonomia de relações e pelo uso de um conjunto de teste pequeno; e \textbf{de Construção}, pois o uso de \textit{seeds} como \textit{ground truth} fraco introduz ruído, uma vez que a polaridade de um comando pode ser ambígua. A validação robusta e a análise de calibração foram conduzidas para mitigar essas ameaças e fornecer uma visão transparente das limitações do modelo.
+
+\section{Conclusão}
+Apresentamos um pipeline semi-supervisionado para perfilar atacantes a partir da semântica de comandos, com \textbf{AUC} entre 0.695 e 0.817 e \textbf{F1} entre 0.742 e 0.837 após otimização por traço. A validação OOF revelou \textbf{generalização modesta}, com AUC entre 0.394 e 0.540 e F1 entre 0.544 e 0.575, enquanto o \textbf{Random Walk} proporcionou melhoria média de 0.021 nos escores. No conjunto de teste, o perfil agregado foi dominado por \textbf{Honesty-Humility}. Esses achados sugerem que a abordagem é viável para orquestração adaptativa em honeypots, mas requer fortalecimento de \textit{ground truth}, expansão do grafo e calibração aprimorada para uso operacional. Como trabalhos futuros, pretendemos: (i) validar com rótulos humanos em honeypots de produção; (ii) aprender pesos de arestas por \emph{learning-to-rank}; (iii) adaptar limiares por \emph{cost-sensitive learning}; e (iv) fechar o ciclo com \emph{decepção cibernética} adaptativa.
+
+%\vspace{-0.2cm}
+\section*{Acknowledgment}
+This work was supported by National Council for Scientific and Technological Development (CNPq/Brazil), grants \#309129/2017-6 and \#432204/2018-0, by São Paulo Research Foundation (FAPESP), grants \#2022/06802-0 and \#2022/06840-0, and CAPES, grant \#88887.509309/2020-00.
+
+%\vspace{-0.2cm}
+\small
+\bibliographystyle{sbc}
+\bibliography{bibliography}
+
+\end{document}

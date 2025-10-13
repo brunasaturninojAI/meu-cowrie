@@ -10,7 +10,9 @@ Segue a abordagem do SentiWordNet de usar dois classificadores binários por tra
 from typing import Dict, List, Set, Tuple
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.svm import SVC
+from sklearn.pipeline import FeatureUnion
+from sklearn.linear_model import LogisticRegression
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.model_selection import cross_val_score, StratifiedKFold
 import logging
 
@@ -24,17 +26,36 @@ class VectorialClassifier:
     
     def __init__(self, gloss_extractor):
         self.gloss_extractor = gloss_extractor
-        self.vectorizer = TfidfVectorizer(
-            max_features=2000,  # Aumentado de 1000 para 2000
+        # Vetorização enriquecida: união de n-gramas de palavras e caracteres
+        self.word_vectorizer = TfidfVectorizer(
+            max_features=2000,
             stop_words='english',
-            ngram_range=(1, 3),  # Aumentado de (1,2) para (1,3)
-            min_df=1,  # Reduzido de 2 para 1 para capturar mais variações
-            max_df=0.95,  # Adicionado para filtrar termos muito comuns
-            sublinear_tf=True,  # Adicionado para melhor normalização
+            ngram_range=(1, 3),
+            min_df=1,
+            max_df=0.95,
+            sublinear_tf=True,
             use_idf=True,
             smooth_idf=True
         )
+        self.char_vectorizer = TfidfVectorizer(
+            analyzer='char',
+            ngram_range=(3, 5),
+            min_df=1,
+            max_df=1.0,
+            sublinear_tf=True
+        )
+        self.vectorizer = FeatureUnion([
+            ("word", self.word_vectorizer),
+            ("char", self.char_vectorizer),
+        ])
         self.classifiers = {}
+        self.relations: Dict = None
+        self._is_vectorizer_fitted: bool = False
+        self._feature_count: int = 0
+
+    def set_relations(self, relations: Dict):
+        """Configura o dicionário de relações para enriquecer as glossas."""
+        self.relations = relations
         
     def prepare_global_vectorizer(self, all_known_commands: List[str]):
         """
@@ -43,19 +64,28 @@ class VectorialClassifier:
         """
         logger.info(f"Preparando vectorizer global com {len(all_known_commands)} comandos...")
         
-        # Obtém glossas para todos os comandos conhecidos
+        # Obtém glossas enriquecidas para todos os comandos conhecidos
         all_glosses = []
         for cmd in all_known_commands:
             try:
-                gloss = self.gloss_extractor.get_command_gloss(cmd)
+                gloss = self._get_enriched_gloss(cmd)
                 all_glosses.append(gloss)
             except Exception as e:
                 logger.warning(f"Erro ao obter gloss para '{cmd}': {e}")
                 all_glosses.append(f"system command: {cmd}")
-        
+
         # Treina o vectorizer com todo o vocabulário
         self.vectorizer.fit(all_glosses)
-        logger.info(f"Vectorizer treinado com vocabulário de {len(self.vectorizer.vocabulary_)} features")
+        # Estima a contagem total de features somando vocabulários dos componentes
+        try:
+            self._feature_count = (
+                (len(self.word_vectorizer.vocabulary_) if hasattr(self.word_vectorizer, 'vocabulary_') and self.word_vectorizer.vocabulary_ is not None else 0)
+                + (len(self.char_vectorizer.vocabulary_) if hasattr(self.char_vectorizer, 'vocabulary_') and self.char_vectorizer.vocabulary_ is not None else 0)
+            )
+        except Exception:
+            self._feature_count = 0
+        self._is_vectorizer_fitted = True
+        logger.info(f"Vectorizer treinado com vocabulário combinado de {self._feature_count} features")
 
     def train_trait_classifiers(self, expanded_sets: Dict[str, Set[str]]) -> Dict[str, Tuple]:
         """
@@ -63,7 +93,7 @@ class VectorialClassifier:
         ATENÇÃO: prepare_global_vectorizer() deve ser chamado primeiro!
         Retorna dicionário de pares (classificador_positivo, classificador_negativo).
         """
-        if not hasattr(self.vectorizer, 'vocabulary_') or self.vectorizer.vocabulary_ is None:
+        if not self._is_vectorizer_fitted:
             raise ValueError("Vectorizer não foi treinado! Chame prepare_global_vectorizer() primeiro.")
         
         trait_classifiers = {}
@@ -92,9 +122,9 @@ class VectorialClassifier:
             objective_commands = self._get_objective_commands(all_commands)
             
             # Obtém glossas (descrições) para vetorização
-            pos_glosses = [self.gloss_extractor.get_command_gloss(cmd) for cmd in positive_commands]
-            neg_glosses = [self.gloss_extractor.get_command_gloss(cmd) for cmd in negative_commands]
-            obj_glosses = [self.gloss_extractor.get_command_gloss(cmd) for cmd in objective_commands]
+            pos_glosses = [self._get_enriched_gloss(cmd) for cmd in positive_commands]
+            neg_glosses = [self._get_enriched_gloss(cmd) for cmd in negative_commands]
+            obj_glosses = [self._get_enriched_gloss(cmd) for cmd in objective_commands]
             
             # Prepara dados de treinamento
             all_glosses = pos_glosses + neg_glosses + obj_glosses
@@ -114,31 +144,45 @@ class VectorialClassifier:
                          [0] * len(obj_glosses))
             
             # Treina classificadores binários com parâmetros otimizados
-            clf_positive = SVC(
-                probability=True, 
+            base_pos = LogisticRegression(
+                solver='liblinear',
+                class_weight='balanced',
                 random_state=42,
-                kernel='rbf',
-                C=1.0,  # Parâmetro de regularização
-                gamma='scale',  # Kernel coefficient
-                class_weight='balanced'  # Para lidar com classes desbalanceadas
+                max_iter=2000,  # Aumentado para melhor convergência
+                C=1.0,  # Regularização padrão
             )
-            clf_negative = SVC(
-                probability=True, 
+            base_neg = LogisticRegression(
+                solver='liblinear',
+                class_weight='balanced',
                 random_state=42,
-                kernel='rbf',
-                C=1.0,
-                gamma='scale',
-                class_weight='balanced'
+                max_iter=2000,  # Aumentado para melhor convergência
+                C=1.0,  # Regularização padrão
             )
+            # Calibração com sigmoid (Platt) para preservar ordenação (melhor AUC)
+            # Define n_splits dinamicamente garantindo pelo menos 2 e no máximo 5 dobras
+            def _n_splits_for(y: List[int]) -> int:
+                try:
+                    counts = np.bincount(np.array(y, dtype=int))
+                    min_class = int(counts[counts > 0].min()) if counts.size > 0 else 2
+                    return max(2, min(5, min_class))
+                except Exception:
+                    return 3
+            cv_pos_splits = _n_splits_for(y_positive)
+            cv_neg_splits = _n_splits_for(y_negative)
+            cv_pos = StratifiedKFold(n_splits=cv_pos_splits, shuffle=True, random_state=42)
+            cv_neg = StratifiedKFold(n_splits=cv_neg_splits, shuffle=True, random_state=42)
+            clf_positive = CalibratedClassifierCV(estimator=base_pos, method='sigmoid', cv=cv_pos)
+            clf_negative = CalibratedClassifierCV(estimator=base_neg, method='sigmoid', cv=cv_neg)
             
             clf_positive.fit(X, y_positive)
             clf_negative.fit(X, y_negative)
             
-            # Validação cruzada mais robusta com StratifiedKFold
-            cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+            # Validação cruzada mais robusta com StratifiedKFold usando mesmo n_splits
+            cv_eval_pos = StratifiedKFold(n_splits=cv_pos_splits, shuffle=True, random_state=42)
+            cv_eval_neg = StratifiedKFold(n_splits=cv_neg_splits, shuffle=True, random_state=42)
             
-            pos_score = cross_val_score(clf_positive, X, y_positive, cv=cv, scoring='f1_weighted').mean()
-            neg_score = cross_val_score(clf_negative, X, y_negative, cv=cv, scoring='f1_weighted').mean()
+            pos_score = cross_val_score(clf_positive, X, y_positive, cv=cv_eval_pos, scoring='f1_weighted').mean()
+            neg_score = cross_val_score(clf_negative, X, y_negative, cv=cv_eval_neg, scoring='f1_weighted').mean()
             
             logger.info(f"  {trait} positive classifier CV score (F1-weighted): {pos_score:.3f}")
             logger.info(f"  {trait} negative classifier CV score (F1-weighted): {neg_score:.3f}")
@@ -147,7 +191,7 @@ class VectorialClassifier:
         
         return trait_classifiers
     
-    def _get_objective_commands(self, labeled_commands: Set[str], max_objective: int = 50) -> List[str]:
+    def _get_objective_commands(self, labeled_commands: Set[str], max_objective: int = 150) -> List[str]:
         """Obtém comandos objetivos (neutros) que não estão nos conjuntos positivo/negativo."""
         common_commands = [
             # Comandos básicos tradicionais
@@ -163,6 +207,7 @@ class VectorialClassifier:
             # Comandos de rede neutros
             "ping", "host", "nslookup", "dig", "ifconfig", "ip addr",
             "route", "arp", "netstat -r", "ss -l", "hostname -I",
+            "curl --help", "wget --help", "ssh -V",
             
             # Comandos modernos neutros - Docker
             "docker --version", "docker info", "docker version",
@@ -172,24 +217,29 @@ class VectorialClassifier:
             # Comandos modernos neutros - Kubernetes  
             "kubectl version", "kubectl config view", "kubectl cluster-info",
             "kubectl get namespaces", "kubectl get nodes", "kubectl api-versions",
+            "kubectl get pods -A", "kubectl get svc -A",
             
             # Comandos modernos neutros - Sistema
             "systemctl --version", "systemctl list-unit-files",
             "systemctl get-default", "systemctl status",
             "journalctl --version", "loginctl list-sessions",
+            "timedatectl", "hostnamectl",
             
             # Comandos modernos neutros - Git
             "git --version", "git config --list", "git remote -v",
             "git branch", "git tag", "git log --oneline",
+            "git rev-parse --short HEAD",
             
             # Comandos modernos neutros - Package managers
             "npm --version", "npm list", "npm config list",
             "pip --version", "pip list", "pip show",
             "conda --version", "conda list", "conda info",
+            "pip freeze", "yarn --version",
             
             # Comandos modernos neutros - Cloud
             "aws --version", "gcloud version", "az version",
             "terraform --version", "ansible --version",
+            "aws sts get-caller-identity",
             
             # Comandos de texto neutros
             "wc", "sort", "uniq", "cut", "paste", "join",
@@ -198,14 +248,17 @@ class VectorialClassifier:
             # Comandos de arquivo neutros
             "find . -name", "locate", "stat", "file", "basename",
             "dirname", "realpath", "readlink", "ln -s",
+            "tree -L 1",
             
             # Comandos de processo neutros
             "ps aux", "pgrep", "pidof", "jobs", "nohup",
             "screen -list", "tmux list-sessions",
+            "uptime", "who",
             
             # Comandos de compressão neutros
             "tar -tf", "zip -l", "unzip -l", "gzip -l",
             "file", "xxd", "hexdump", "strings",
+            "bzip2 -t", "xz -t",
         ]
         
         objective = [cmd for cmd in common_commands if cmd not in labeled_commands]
@@ -216,35 +269,20 @@ class VectorialClassifier:
         Classifica um comando usando classificadores treinados.
         Retorna pontuações para cada traço: {trait: {"positive": p, "negative": n, "objective": o}}
         """
-        gloss = self.gloss_extractor.get_command_gloss(command)
+        gloss = self._get_enriched_gloss(command)
         X = self.vectorizer.transform([gloss])
         
         results = {}
         
         for trait, (clf_pos, clf_neg) in trait_classifiers.items():
-            # Obtém probabilidades de ambos os classificadores
-            pos_proba = clf_pos.predict_proba(X)[0][1]  # probabilidade de ser positivo
-            neg_proba = clf_neg.predict_proba(X)[0][1]  # probabilidade de ser negativo
-            
-            # Lógica de decisão melhorada e menos polarizada
-            # Threshold mais baixo para reduzir polarização
-            threshold = 0.4  # Reduzido de 0.5 para 0.4
-            
-            if pos_proba > threshold and neg_proba <= threshold:
-                # Positivo - mas com score mais suave
-                positive_score = min(0.8, pos_proba)  # Limita score máximo
-                negative_score = max(0.1, neg_proba * 0.5)  # Score negativo mínimo
-                objective_score = 1.0 - positive_score - negative_score
-            elif pos_proba <= threshold and neg_proba > threshold:
-                # Negativo - mas com score mais suave
-                positive_score = max(0.1, pos_proba * 0.5)  # Score positivo mínimo
-                negative_score = min(0.8, neg_proba)  # Limita score máximo
-                objective_score = 1.0 - positive_score - negative_score
-            else:
-                # Objetivo ou ambíguo - scores mais balanceados
-                positive_score = max(0.1, pos_proba * 0.6)
-                negative_score = max(0.1, neg_proba * 0.6)
-                objective_score = 1.0 - positive_score - negative_score
+            # Probabilidades calibradas dos classificadores binários
+            pos_proba = float(clf_pos.predict_proba(X)[0][1])
+            neg_proba = float(clf_neg.predict_proba(X)[0][1])
+
+            # Combinação suave com inibição mútua
+            positive_score = max(0.0, pos_proba * (1.0 - neg_proba))
+            negative_score = max(0.0, neg_proba * (1.0 - pos_proba))
+            objective_score = max(0.0, 1.0 - positive_score - negative_score)
             
             # Garante que todos os scores sejam positivos e somem 1.0
             positive_score = max(0.0, positive_score)
@@ -267,12 +305,70 @@ class VectorialClassifier:
     def get_classifier_info(self) -> Dict:
         """Retorna informações sobre os classificadores treinados."""
         return {
-            "vectorizer_features": len(self.vectorizer.vocabulary_) if hasattr(self.vectorizer, 'vocabulary_') else 0,
+            "vectorizer_features": self._feature_count,
             "trained_classifiers": len(self.classifiers),
             "vectorizer_params": {
-                "max_features": self.vectorizer.max_features,
-                "ngram_range": self.vectorizer.ngram_range,
-                "min_df": self.vectorizer.min_df,
-                "max_df": self.vectorizer.max_df
+                "word": {
+                    "max_features": getattr(self.word_vectorizer, 'max_features', None),
+                    "ngram_range": getattr(self.word_vectorizer, 'ngram_range', None),
+                    "min_df": getattr(self.word_vectorizer, 'min_df', None),
+                    "max_df": getattr(self.word_vectorizer, 'max_df', None),
+                },
+                "char": {
+                    "ngram_range": getattr(self.char_vectorizer, 'ngram_range', None)
+                }
             }
-        } 
+        }
+
+    def _get_enriched_gloss(self, command: str) -> str:
+        """Retorna a glossa base enriquecida com contexto das relações taxonômicas."""
+        base_gloss = self.gloss_extractor.get_command_gloss(command)
+        if not self.relations:
+            return base_gloss
+
+        similar_neighbors: Set[str] = set()
+        derived_neighbors: Set[str] = set()
+        category_neighbors: Set[str] = set()
+        antonym_neighbors: Set[str] = set()
+
+        # Similar
+        for base, similars in self.relations.get("similar", {}).items():
+            if command.startswith(base) or command in similars:
+                similar_neighbors.update(similars)
+                similar_neighbors.add(base)
+
+        # Derived from
+        for base, derivatives in self.relations.get("derived_from", {}).items():
+            if command.startswith(base) or command in derivatives:
+                derived_neighbors.update(derivatives)
+                derived_neighbors.add(base)
+
+        # Categories (also_see)
+        for _, cmds in self.relations.get("also_see", {}).items():
+            if command in cmds:
+                category_neighbors.update(cmds)
+
+        # Antonyms
+        for base, opposites in self.relations.get("antonym", {}).items():
+            if command.startswith(base) or command in opposites:
+                antonym_neighbors.update(opposites)
+                antonym_neighbors.add(base)
+
+        # Limitar quantidade para não poluir o texto
+        def take_some(values: Set[str], max_n: int = 10) -> List[str]:
+            return list(values)[:max_n]
+
+        parts = [base_gloss]
+        if similar_neighbors:
+            parts.append("similar " + " ".join(take_some(similar_neighbors)))
+        if derived_neighbors:
+            parts.append("derived " + " ".join(take_some(derived_neighbors)))
+        if category_neighbors:
+            # Evita incluir o próprio comando várias vezes
+            cat_tokens = [c for c in take_some(category_neighbors) if c != command]
+            if cat_tokens:
+                parts.append("category " + " ".join(cat_tokens))
+        if antonym_neighbors:
+            parts.append("antonym " + " ".join(take_some(antonym_neighbors)))
+
+        return " \n ".join(parts)

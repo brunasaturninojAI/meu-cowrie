@@ -18,10 +18,11 @@ class SemiSupervisedExpander:
     Expande conjuntos semente usando relações taxonômicas iterativamente.
     """
     
-    def __init__(self, seed_sets: Dict[str, List[str]], relations: Dict[str, Dict], max_iterations: int = 3):
+    def __init__(self, seed_sets: Dict[str, List[str]], relations: Dict[str, Dict], max_iterations: int = 1, max_additions_per_iter: int = 40):
         self.seed_sets = seed_sets
         self.relations = relations
         self.max_iterations = max_iterations
+        self.max_additions_per_iter = max_additions_per_iter
         
     def expand_seeds(self) -> Dict[str, Set[str]]:
         """
@@ -29,6 +30,8 @@ class SemiSupervisedExpander:
         Retorna conjuntos de treinamento expandidos finais.
         """
         expanded_sets = {}
+        # Guardará adições para a polaridade oposta via antônimos
+        cross_polarity_additions: Dict[str, Set[str]] = {}
         
         for trait_polarity, initial_seeds in self.seed_sets.items():
             logger.info(f"Expanding {trait_polarity}: {len(initial_seeds)} initial seeds")
@@ -42,9 +45,16 @@ class SemiSupervisedExpander:
                     # Adiciona comandos similares (preserva polaridade)
                     iteration_additions.update(self._get_similar_commands(command))
                     
-                    # Adiciona comandos antônimos à polaridade oposta
+                    # Adiciona comandos antônimos à polaridade oposta (armazenados para aplicar depois)
+                    antonyms = self._get_antonym_commands(command)
+                    trait = trait_polarity.split('_')[0]
                     if "Positive" in trait_polarity:
-                        _ = self._get_antonym_commands(command)  # Antônimos coletados, mas não utilizados aqui
+                        opposite_key = f"{trait}_Negative"
+                    else:
+                        opposite_key = f"{trait}_Positive"
+                    if opposite_key not in cross_polarity_additions:
+                        cross_polarity_additions[opposite_key] = set()
+                    cross_polarity_additions[opposite_key].update(antonyms)
                     
                     # Adiciona comandos derivados (preserva polaridade)
                     iteration_additions.update(self._get_derived_commands(command))
@@ -53,6 +63,9 @@ class SemiSupervisedExpander:
                     iteration_additions.update(self._get_category_commands(command))
                 
                 new_commands = iteration_additions - current_set
+                if self.max_additions_per_iter:
+                    # limita adições por iteração para conter drift
+                    new_commands = set(list(new_commands)[: self.max_additions_per_iter])
                 current_set.update(new_commands)
                 
                 logger.info(f"  Iteration {iteration + 1}: added {len(new_commands)} commands")
@@ -62,6 +75,18 @@ class SemiSupervisedExpander:
             
             expanded_sets[trait_polarity] = current_set
             logger.info(f"Final {trait_polarity}: {len(current_set)} commands")
+        
+        # Aplica as adições de antônimos nos conjuntos opostos
+        for key, additions in cross_polarity_additions.items():
+            if not additions:
+                continue
+            if key in expanded_sets:
+                before = len(expanded_sets[key])
+                expanded_sets[key].update(additions)
+                logger.info(f"Applied antonym expansion to {key}: +{len(expanded_sets[key]) - before} commands")
+            else:
+                expanded_sets[key] = set(additions)
+                logger.info(f"Created {key} with {len(additions)} commands from antonym expansion")
         
         return expanded_sets
     
