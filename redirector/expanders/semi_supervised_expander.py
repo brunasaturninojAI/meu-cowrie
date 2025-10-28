@@ -18,7 +18,7 @@ class SemiSupervisedExpander:
     Expande conjuntos semente usando relações taxonômicas iterativamente.
     """
     
-    def __init__(self, seed_sets: Dict[str, List[str]], relations: Dict[str, Dict], max_iterations: int = 1, max_additions_per_iter: int = 40):
+    def __init__(self, seed_sets: Dict[str, List[str]], relations: Dict[str, Dict], max_iterations: int = 2, max_additions_per_iter: int = 60):
         self.seed_sets = seed_sets
         self.relations = relations
         self.max_iterations = max_iterations

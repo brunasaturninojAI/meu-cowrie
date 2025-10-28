@@ -61,11 +61,11 @@ class RandomWalkRefiner:
                     rev_derived[v] = []
                 rev_derived[v].append(k)
         
-        # Pesos diferenciados por tipo de relação
-        w_sim = 1.0   # Similar: peso máximo
-        w_der = 0.7   # Derived: reduzido de 0.8
-        w_cat = 0.5   # Category: reduzido de 0.6
-        w_ant = 0.05  # Antônimos: muito reduzido (era 0.15) para minimizar contaminação cruzada
+        # Pesos diferenciados por tipo de relação (ajustados para reduzir overfitting)
+        w_sim = 1.0   # Similar: peso máximo (mantido)
+        w_der = 0.5   # Derived: reduzido de 0.7 para 0.5
+        w_cat = 0.3   # Category: reduzido de 0.5 para 0.3
+        w_ant = 0.02  # Antônimos: ainda mais reduzido (era 0.05) para minimizar contaminação cruzada
 
         for i, cmd in enumerate(self.all_commands):
             neighbors = set()

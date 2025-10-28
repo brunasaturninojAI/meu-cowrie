@@ -14,6 +14,9 @@ from sklearn.pipeline import FeatureUnion
 from sklearn.linear_model import LogisticRegression
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.model_selection import cross_val_score, StratifiedKFold
+from sklearn.preprocessing import FunctionTransformer
+from scipy import sparse
+import re
 import logging
 
 logger = logging.getLogger(__name__)
@@ -28,30 +31,38 @@ class VectorialClassifier:
         self.gloss_extractor = gloss_extractor
         # Vetorização enriquecida: união de n-gramas de palavras e caracteres
         self.word_vectorizer = TfidfVectorizer(
-            max_features=2000,
+            max_features=1000,  # Reduzido de 2000 para reduzir overfitting
             stop_words='english',
-            ngram_range=(1, 3),
-            min_df=1,
-            max_df=0.95,
+            ngram_range=(1, 2),  # Reduzido de (1,3) para (1,2)
+            min_df=2,  # Aumentado de 1 para 2
+            max_df=0.85,  # Reduzido de 0.95 para 0.85
             sublinear_tf=True,
             use_idf=True,
             smooth_idf=True
         )
         self.char_vectorizer = TfidfVectorizer(
             analyzer='char',
-            ngram_range=(3, 5),
-            min_df=1,
-            max_df=1.0,
+            ngram_range=(3, 4),  # Reduzido de (3,5) para (3,4)
+            min_df=2,  # Aumentado de 1 para 2
+            max_df=0.90,  # Reduzido de 1.0 para 0.90
             sublinear_tf=True
         )
+        # Extrator de features estruturais
+        self.structural_transformer = FunctionTransformer(
+            func=self._extract_structural_features_batch,
+            validate=False
+        )
+        # Union combina TF-IDF textual (features estruturais desabilitadas para reduzir overfitting)
         self.vectorizer = FeatureUnion([
             ("word", self.word_vectorizer),
             ("char", self.char_vectorizer),
+            # ("structural", self.structural_transformer),  # Desabilitado temporariamente
         ])
         self.classifiers = {}
         self.relations: Dict = None
         self._is_vectorizer_fitted: bool = False
         self._feature_count: int = 0
+        self._command_to_structural_cache: Dict[str, np.ndarray] = {}
 
     def set_relations(self, relations: Dict):
         """Configura o dicionário de relações para enriquecer as glossas."""
@@ -149,14 +160,14 @@ class VectorialClassifier:
                 class_weight='balanced',
                 random_state=42,
                 max_iter=2000,  # Aumentado para melhor convergência
-                C=1.0,  # Regularização padrão
+                C=0.5,  # Regularização aumentada para reduzir overfitting
             )
             base_neg = LogisticRegression(
                 solver='liblinear',
                 class_weight='balanced',
                 random_state=42,
                 max_iter=2000,  # Aumentado para melhor convergência
-                C=1.0,  # Regularização padrão
+                C=0.5,  # Regularização aumentada para reduzir overfitting
             )
             # Calibração com sigmoid (Platt) para preservar ordenação (melhor AUC)
             # Define n_splits dinamicamente garantindo pelo menos 2 e no máximo 5 dobras
@@ -319,6 +330,107 @@ class VectorialClassifier:
                 }
             }
         }
+
+    def _extract_structural_features(self, command: str) -> np.ndarray:
+        """Extrai features estruturais de um comando.
+
+        Retorna vetor numpy com features como:
+        - command_length: comprimento do comando
+        - num_args: número de argumentos
+        - num_flags: número de flags (-x, --flag)
+        - num_pipes: número de pipes (|)
+        - num_redirects: número de redirects (>, <, >>)
+        - num_logical_ops: operadores lógicos (&, &&, ||, ;)
+        - has_sudo: presença de sudo/su
+        - has_wildcards: presença de wildcards (*)
+        - has_dangerous_patterns: palavras perigosas (rm, dd, kill, etc.)
+        - num_special_chars: número de caracteres especiais
+        """
+        features = []
+
+        # 1. Comprimento do comando
+        features.append(float(len(command)))
+
+        # 2. Número de argumentos (split por espaço)
+        tokens = command.split()
+        num_args = max(0, len(tokens) - 1)  # -1 para excluir o comando base
+        features.append(float(num_args))
+
+        # 3. Número de flags (-x, --flag)
+        num_flags = len(re.findall(r'-+\w+', command))
+        features.append(float(num_flags))
+
+        # 4. Número de pipes
+        num_pipes = command.count('|')
+        features.append(float(num_pipes))
+
+        # 5. Número de redirects
+        num_redirects = command.count('>') + command.count('<')
+        features.append(float(num_redirects))
+
+        # 6. Operadores lógicos
+        num_logical = command.count('&&') + command.count('||') + command.count(';') + command.count('&')
+        features.append(float(num_logical))
+
+        # 7. Presença de sudo/su (elevação de privilégios)
+        has_sudo = 1.0 if re.search(r'\b(sudo|su)\b', command) else 0.0
+        features.append(has_sudo)
+
+        # 8. Presença de wildcards
+        has_wildcards = 1.0 if '*' in command or '?' in command else 0.0
+        features.append(has_wildcards)
+
+        # 9. Presença de padrões perigosos
+        dangerous_patterns = [
+            r'\brm\s+-rf\b', r'\bdd\b', r'\bkill\b', r'\bkillall\b',
+            r'\bchmod\s+777\b', r'\bmkfs\b', r'\bformat\b', r'\bshred\b',
+            r'\bwipefs\b', r'\biptables.*-F\b', r'\bsetenforce\s+0\b'
+        ]
+        has_dangerous = 1.0 if any(re.search(pat, command) for pat in dangerous_patterns) else 0.0
+        features.append(has_dangerous)
+
+        # 10. Número de caracteres especiais
+        special_chars = r'[!@#$%^&*(){}[\]\\|;:\'"<>?/~`]'
+        num_special = len(re.findall(special_chars, command))
+        features.append(float(num_special))
+
+        # 11. Presença de network commands
+        network_patterns = [r'\b(curl|wget|ssh|scp|ftp|telnet|nc|netcat)\b']
+        has_network = 1.0 if any(re.search(pat, command) for pat in network_patterns) else 0.0
+        features.append(has_network)
+
+        # 12. Presença de file manipulation
+        file_patterns = [r'\b(cp|mv|rm|mkdir|rmdir|touch|ln)\b']
+        has_file_ops = 1.0 if any(re.search(pat, command) for pat in file_patterns) else 0.0
+        features.append(has_file_ops)
+
+        return np.array(features, dtype=float)
+
+    def _extract_structural_features_batch(self, glosses: List[str]) -> sparse.csr_matrix:
+        """Extrai features estruturais para um batch de glossas.
+
+        FeatureUnion chama isso com as glossas, mas precisamos dos comandos originais.
+        Como workaround, extraímos o comando do início da glossa.
+        """
+        features_list = []
+        for gloss in glosses:
+            # Extrai comando da primeira linha da glossa (antes de "similar", "derived", etc.)
+            cmd = gloss.split('\n')[0].strip()
+            # Remove prefixo padrão "system command: " se existir
+            if cmd.startswith("system command: "):
+                cmd = cmd.replace("system command: ", "")
+
+            # Tenta usar cache primeiro
+            if cmd in self._command_to_structural_cache:
+                features_list.append(self._command_to_structural_cache[cmd])
+            else:
+                feats = self._extract_structural_features(cmd)
+                self._command_to_structural_cache[cmd] = feats
+                features_list.append(feats)
+
+        # Converte para matriz densa e depois para sparse (para compatibilidade com FeatureUnion)
+        dense_matrix = np.vstack(features_list)
+        return sparse.csr_matrix(dense_matrix)
 
     def _get_enriched_gloss(self, command: str) -> str:
         """Retorna a glossa base enriquecida com contexto das relações taxonômicas."""
